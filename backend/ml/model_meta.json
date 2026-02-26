@@ -1,0 +1,1 @@
+{"features": ["current_speed", "speed_limit", "weather_code", "visibility_km", "road_type", "hour_of_day"], "weather_codes": {"clear": 0, "clouds": 1, "rain": 2, "snow": 3, "fog": 4, "mist": 4, "haze": 4, "thunderstorm": 5, "drizzle": 2}}
