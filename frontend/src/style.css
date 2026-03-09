@@ -455,6 +455,28 @@ body {
   background: rgba(239, 68, 68, 0.25);
 }
 
+.btn-live-track {
+  background: rgba(0, 245, 255, 0.15);
+  border: 1px solid rgba(0, 245, 255, 0.3);
+  color: var(--accent-cyan);
+  margin-top: 12px;
+}
+
+.btn-live-track:hover {
+  background: rgba(0, 245, 255, 0.25);
+  box-shadow: var(--shadow-glow-cyan);
+}
+
+.drive-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.drive-buttons .btn {
+  flex: 1;
+  margin-top: 12px;
+}
+
 .btn-icon {
   font-size: 16px;
 }

@@ -3,7 +3,7 @@
  */
 import './style.css';
 import { initMap, setSourceMarker, setDestMarker, drawRoute, updateCarMarker, removeCarMarker, panTo } from './map.js';
-import { getCurrentPosition } from './location.js';
+import { getCurrentPosition, startTracking, stopTracking } from './location.js';
 import { initSpeedMonitor, updateSpeed, findCurrentSegment } from './speed.js';
 import { fetchRouteWeather, renderWeatherCards } from './weather.js';
 import {
@@ -84,6 +84,7 @@ let sourceLocation = null;
 let destLocation = null;
 let routeData = null;
 let simulation = null;
+let isLiveTracking = false;
 
 /**
  * Try to resolve a text input into a location {name, lat, lng}.
@@ -218,6 +219,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Stop Simulation button
     document.getElementById('stop-sim-btn').addEventListener('click', stopSimulation);
+
+    // Live Track button
+    document.getElementById('live-track-btn').addEventListener('click', startLiveTracking);
+
+    // Stop Tracking button
+    document.getElementById('stop-track-btn').addEventListener('click', stopLiveTracking);
 
     // Demo route buttons
     document.querySelectorAll('.btn-demo').forEach(btn => {
@@ -403,6 +410,7 @@ function startSimulation() {
     if (!routeData) return;
 
     document.getElementById('simulate-btn').classList.add('hidden');
+    document.getElementById('live-track-btn').classList.add('hidden');
     document.getElementById('stop-sim-btn').classList.remove('hidden');
 
     const floatingSpeed = document.getElementById('floating-speed');
@@ -419,6 +427,8 @@ function startSimulation() {
             }
             updateSpeed(speed, limit);
             updateCarMarker(pos.lat, pos.lng, bearing);
+            // Pan map to follow the car
+            panTo(pos.lat, pos.lng, 14);
         },
         () => { stopSimulation(); }
     );
@@ -430,7 +440,80 @@ function stopSimulation() {
         simulation = null;
     }
     document.getElementById('simulate-btn').classList.remove('hidden');
+    document.getElementById('live-track-btn').classList.remove('hidden');
     document.getElementById('stop-sim-btn').classList.add('hidden');
+    removeCarMarker();
+    hideViolationAlert();
+    updateSpeed(0, 60);
+}
+
+// ─── Live GPS Tracking ───
+function startLiveTracking() {
+    if (!routeData) return;
+
+    isLiveTracking = true;
+
+    // Hide drive buttons, show stop tracking button
+    document.getElementById('simulate-btn').classList.add('hidden');
+    document.getElementById('live-track-btn').classList.add('hidden');
+    document.getElementById('stop-track-btn').classList.remove('hidden');
+
+    const floatingSpeed = document.getElementById('floating-speed');
+    floatingSpeed.classList.remove('hidden');
+
+    let lastBearingPos = null;
+
+    const trackingStarted = startTracking(
+        // Speed callback
+        (speedKmh) => {
+            if (!isLiveTracking) return;
+            // Find the current segment to get speed limit
+            let limit = 60;
+            if (routeData && routeData.segments && lastBearingPos) {
+                const seg = findCurrentSegment(lastBearingPos, routeData.segments);
+                if (seg) {
+                    limit = seg.speedLimit;
+                    const roadTypes = { 120: 0, 100: 1, 80: 2, 60: 3, 40: 4, 30: 4 };
+                    window.__currentRoadType = roadTypes[seg.speedLimit] ?? 3;
+                }
+            }
+            updateSpeed(speedKmh, limit);
+        },
+        // Position callback
+        (pos) => {
+            if (!isLiveTracking) return;
+            // Calculate bearing from last position
+            let bearing = 0;
+            if (lastBearingPos) {
+                // Bearing calculation
+                const dLon = (pos.lng - lastBearingPos.lng) * Math.PI / 180;
+                const y = Math.sin(dLon) * Math.cos(pos.lat * Math.PI / 180);
+                const x = Math.cos(lastBearingPos.lat * Math.PI / 180) * Math.sin(pos.lat * Math.PI / 180) -
+                    Math.sin(lastBearingPos.lat * Math.PI / 180) * Math.cos(pos.lat * Math.PI / 180) * Math.cos(dLon);
+                bearing = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+            }
+
+            updateCarMarker(pos.lat, pos.lng, bearing);
+            panTo(pos.lat, pos.lng, 16);
+
+            lastBearingPos = pos;
+        }
+    );
+
+    if (!trackingStarted) {
+        alert('GPS tracking is not available. Please allow location access or use Simulate Drive instead.');
+        stopLiveTracking();
+    }
+}
+
+function stopLiveTracking() {
+    isLiveTracking = false;
+    stopTracking();
+
+    document.getElementById('simulate-btn').classList.remove('hidden');
+    document.getElementById('live-track-btn').classList.remove('hidden');
+    document.getElementById('stop-track-btn').classList.add('hidden');
+
     removeCarMarker();
     hideViolationAlert();
     updateSpeed(0, 60);
