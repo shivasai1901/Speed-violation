@@ -27,9 +27,33 @@ export function setupAutocomplete(inputId, suggestionsId, onSelect) {
 
         debounceTimer = setTimeout(async () => {
             try {
-                const res = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`);
-                if (!res.ok) return;
-                const results = await res.json();
+                let results = [];
+
+                // 1. Try backend API (ORS + Nominatim)
+                try {
+                    const res = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`);
+                    if (res.ok) {
+                        results = await res.json();
+                    }
+                } catch { /* backend unavailable */ }
+
+                // 2. If no results, try Nominatim directly as fallback
+                if (results.length === 0) {
+                    try {
+                        const nomRes = await fetch(
+                            `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&countrycodes=in`
+                        );
+                        if (nomRes.ok) {
+                            const places = await nomRes.json();
+                            results = places.map(p => ({
+                                name: p.display_name,
+                                lat: parseFloat(p.lat),
+                                lng: parseFloat(p.lon),
+                                id: p.place_id?.toString() || ''
+                            }));
+                        }
+                    } catch { /* Nominatim unavailable */ }
+                }
 
                 list.innerHTML = '';
                 if (results.length === 0) {

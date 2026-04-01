@@ -5,8 +5,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description"
-    content="Speed Violation Detector - Real-time speed monitoring with route planning, weather reports, and ML-powered violation alerts." />
-  <title>Speed Violation Detector</title>
+    content="Speed Violation Detector - Real-time speed monitoring with route planning, live weather, and ML-powered violation alerts. 3D animated interface." />
+  <title>Speed Violation Detector — 3D Dashboard</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -16,6 +16,8 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap"
     rel="stylesheet" />
+  <!-- Three.js for 3D particles -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
@@ -46,7 +48,7 @@
             <defs>
               <linearGradient id="logoGrad" x1="0" y1="0" x2="40" y2="40">
                 <stop offset="0%" stop-color="#00f5ff" />
-                <stop offset="100%" stop-color="#7c3aed" />
+                <stop offset="100%" stop-color="#a855f7" />
               </linearGradient>
             </defs>
           </svg>
@@ -130,14 +132,16 @@
         <div class="gauge-container">
           <div class="gauge" id="speed-gauge">
             <svg viewBox="0 0 200 120" class="gauge-svg">
-              <path d="M 20 110 A 80 80 0 0 1 180 110" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="12"
+              <path d="M 20 110 A 80 80 0 0 1 180 110" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="14"
                 stroke-linecap="round" />
-              <path id="gauge-fill" d="M 20 110 A 80 80 0 0 1 180 110" fill="none" stroke="url(#gaugeGrad)"
-                stroke-width="12" stroke-linecap="round" stroke-dasharray="251.2" stroke-dashoffset="251.2" />
+              <path id="gauge-fill" d="M 20 110 A 80 80 0 0 1 180 110" fill="none" stroke="url(#gaugeGrad3D)"
+                stroke-width="14" stroke-linecap="round" stroke-dasharray="251.2" stroke-dashoffset="251.2"
+                style="filter: drop-shadow(0 0 8px rgba(0, 245, 255, 0.3))" />
               <defs>
-                <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                <linearGradient id="gaugeGrad3D" x1="0%" y1="0%" x2="100%" y2="0%">
                   <stop offset="0%" stop-color="#10b981" />
-                  <stop offset="50%" stop-color="#f59e0b" />
+                  <stop offset="40%" stop-color="#00f5ff" />
+                  <stop offset="70%" stop-color="#f59e0b" />
                   <stop offset="100%" stop-color="#ef4444" />
                 </linearGradient>
               </defs>
@@ -179,6 +183,9 @@
 
     <!-- ─── MAP ─── -->
     <main class="map-container">
+      <!-- 3D Particle Background -->
+      <div id="three-bg"></div>
+      <!-- Map -->
       <div id="map"></div>
       <!-- Floating Speed Badge -->
       <div id="floating-speed" class="floating-speed hidden">

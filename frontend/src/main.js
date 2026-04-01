@@ -17,6 +17,7 @@ import {
     updateFindRouteBtn,
     displayRouteInfo
 } from './ui.js';
+import { initParticles } from './particles.js';
 
 // ─── Known cities fallback (lat, lng) ───
 const KNOWN_CITIES = {
@@ -94,7 +95,7 @@ async function resolveLocation(text) {
     const trimmed = text.trim();
     if (!trimmed) return null;
 
-    // 1. Try API geocode
+    // 1. Try API geocode (backend tries ORS + Nominatim)
     try {
         const res = await fetch(`/api/geocode?q=${encodeURIComponent(trimmed)}`);
         if (res.ok) {
@@ -105,13 +106,30 @@ async function resolveLocation(text) {
         }
     } catch { /* API unavailable */ }
 
-    // 2. Check known cities
+    // 2. Direct Nominatim (OpenStreetMap) fallback — works even if backend is down
+    try {
+        const nomRes = await fetch(
+            `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(trimmed)}&format=json&limit=5&countrycodes=in`
+        );
+        if (nomRes.ok) {
+            const places = await nomRes.json();
+            if (places.length > 0) {
+                return {
+                    name: places[0].display_name,
+                    lat: parseFloat(places[0].lat),
+                    lng: parseFloat(places[0].lon)
+                };
+            }
+        }
+    } catch { /* Nominatim unavailable */ }
+
+    // 3. Check known cities
     const key = trimmed.toLowerCase();
     if (KNOWN_CITIES[key]) {
         return { name: trimmed, lat: KNOWN_CITIES[key].lat, lng: KNOWN_CITIES[key].lng };
     }
 
-    // 3. Partial match in known cities
+    // 4. Partial match in known cities
     for (const [cityName, coords] of Object.entries(KNOWN_CITIES)) {
         if (cityName.includes(key) || key.includes(cityName)) {
             return { name: trimmed, lat: coords.lat, lng: coords.lng };
@@ -125,6 +143,9 @@ async function resolveLocation(text) {
 document.addEventListener('DOMContentLoaded', () => {
     // Init map
     initMap();
+
+    // Init 3D particle background
+    initParticles('three-bg');
 
     // Setup autocomplete for source
     setupAutocomplete('source-input', 'source-suggestions', (place) => {
@@ -279,7 +300,7 @@ async function findRoute() {
                 sourceLocation = resolved;
                 setSourceMarker(resolved.lat, resolved.lng, resolved.name);
             } else {
-                alert(`Could not find location: "${srcText}". Try a major city name like Delhi, Mumbai, Warangal, etc.`);
+                alert(`Could not find location: "${srcText}". Try adding more details (e.g. city/state name) or check the spelling.`);
                 btn.classList.remove('loading');
                 btn.disabled = false;
                 return;
@@ -293,7 +314,7 @@ async function findRoute() {
                 destLocation = resolved;
                 setDestMarker(resolved.lat, resolved.lng, resolved.name);
             } else {
-                alert(`Could not find location: "${dstText}". Try a major city name like Delhi, Mumbai, Warangal, etc.`);
+                alert(`Could not find location: "${dstText}". Try adding more details (e.g. city/state name) or check the spelling.`);
                 btn.classList.remove('loading');
                 btn.disabled = false;
                 return;
@@ -305,7 +326,7 @@ async function findRoute() {
 
         let data = null;
 
-        // Try API route first
+        // Try API route first (backend)
         try {
             const res = await fetch(`/api/route?start=${start}&end=${end}`);
             if (res.ok) {
@@ -313,9 +334,19 @@ async function findRoute() {
             }
         } catch { /* API failed */ }
 
-        // Fallback: generate a synthetic route if API fails
+        // Fallback 1: Direct OSRM call (free, no API key — gives real road routes)
         if (!data || !data.coordinates || data.coordinates.length === 0) {
-            console.warn('API route failed, using fallback route generation');
+            console.warn('Backend route failed, trying direct OSRM...');
+            try {
+                data = await fetchOSRMRoute(sourceLocation, destLocation);
+            } catch (e) {
+                console.warn('OSRM fallback also failed:', e.message);
+            }
+        }
+
+        // Fallback 2: Synthetic interpolated route (last resort)
+        if (!data || !data.coordinates || data.coordinates.length === 0) {
+            console.warn('All routing APIs failed, using synthetic fallback');
             data = generateFallbackRoute(sourceLocation, destLocation);
         }
 
@@ -342,6 +373,76 @@ async function findRoute() {
 
     btn.classList.remove('loading');
     btn.disabled = false;
+}
+
+/**
+ * Fetch a real road route directly from OSRM (free, no API key).
+ * Used as fallback when backend is unavailable.
+ */
+async function fetchOSRMRoute(source, dest) {
+    const url = `https://router.project-osrm.org/route/v1/driving/${source.lng},${source.lat};${dest.lng},${dest.lat}?overview=full&geometries=geojson&steps=true&annotations=true`;
+
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`OSRM HTTP ${res.status}`);
+
+    const json = await res.json();
+    if (json.code !== 'Ok' || !json.routes || json.routes.length === 0) {
+        throw new Error('OSRM returned no routes');
+    }
+
+    const route = json.routes[0];
+    const coords = route.geometry.coordinates;
+    const legs = route.legs;
+
+    const segments = [];
+    for (const leg of legs) {
+        for (const step of leg.steps) {
+            if (step.geometry && step.geometry.coordinates.length >= 2) {
+                const speedLimit = estimateOSRMSpeedLimit(step);
+                segments.push({
+                    instruction: step.maneuver
+                        ? `${step.maneuver.type} ${step.maneuver.modifier || ''}`.trim()
+                        : 'Continue',
+                    distance: step.distance,
+                    duration: step.duration,
+                    name: step.name || step.ref || 'Unknown road',
+                    speedLimit,
+                    wayPoints: step.geometry.coordinates.map(c => ({ lat: c[1], lng: c[0] }))
+                });
+            }
+        }
+    }
+
+    return {
+        coordinates: coords.map(c => ({ lat: c[1], lng: c[0] })),
+        distance: route.distance,
+        duration: route.duration,
+        segments,
+        bbox: null
+    };
+}
+
+/** Estimate speed limit from OSRM step data */
+function estimateOSRMSpeedLimit(step) {
+    const name = (step.name || '').toLowerCase();
+    const ref = (step.ref || '').toLowerCase();
+
+    if (ref.startsWith('nh') || name.includes('national highway') || name.includes('expressway')) return 100;
+    if (ref.startsWith('sh') || name.includes('state highway')) return 80;
+    if (name.includes('highway') || name.includes('bypass') || name.includes('ring road')) return 80;
+    if (name.includes('main road') || name.includes('trunk')) return 60;
+    if (name.includes('service') || name.includes('residential') || name.includes('lane') || name.includes('gali')) return 30;
+
+    // Estimate from average speed
+    if (step.distance > 0 && step.duration > 0) {
+        const avgSpeedKmh = (step.distance / step.duration) * 3.6;
+        if (avgSpeedKmh > 80) return 100;
+        if (avgSpeedKmh > 50) return 80;
+        if (avgSpeedKmh > 30) return 60;
+        return 40;
+    }
+
+    return 60;
 }
 
 /**
